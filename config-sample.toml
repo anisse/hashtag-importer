@@ -1,0 +1,6 @@
+server = 'your mastodon server'
+
+[auth]
+client_id = 'fake client id'
+client_secret = 'fake client secret'
+token = 'fake user token'

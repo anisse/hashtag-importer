@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 reqwest = { version = "0.11.20", default-features = false, features = ["rustls-tls-native-roots", "blocking", "cookies", "gzip", "brotli", "json"] }
+serde = { version = "1.0.188", default-features = false, features = ["derive", "std"] }
+toml = "0.8.0"
+webbrowser = "0.8.11"
