@@ -1,10 +1,13 @@
-use std::collections::HashMap;
+mod types;
+
 use std::env;
 use std::io;
 use std::io::Write;
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
+
+use crate::types::*;
 
 const USER_AGENT: &str = concat!("hashtag-importer v", env!("CARGO_PKG_VERSION"));
 const CLIENT_NAME: &str = "hashtag-importer test version";
@@ -42,24 +45,23 @@ fn create_app() -> Result<()> {
     let url = reqwest::Url::parse(format!("https://{server_domain}/").as_str())
         .with_context(|| format!("{server_domain} is not a domain"))?;
     // Register the app
-    // TODO: struct + deserialize instead
-    let resp: HashMap<String, String> = client()?
+    let resp: ApplicationResponse = client()?
         .post(url.join("api/v1/apps")?)
-        .json(&HashMap::from([
-            // TODO: struct + serialize instead
-            ("client_name", CLIENT_NAME),
-            ("redirect_uris", "urn:ietf:wg:oauth:2.0:oob"),
-            ("website", CLIENT_WEBSITE),
-            ("scopes", "read"),
-        ]))
+        .json(&ApplicationRegistration {
+            client_name: CLIENT_NAME,
+            redirect_uris: OOB_URI,
+            website: CLIENT_WEBSITE,
+            scopes: Scope::Read,
+        })
         .send()
         .with_context(|| "create app post failed")?
         .json()
-        .with_context(|| "create app body not valid json")?;
+        .with_context(|| "create app response body not valid json")?;
+    dbg!(&resp);
     println!("Copy paste this into your config.toml:");
     println!("[auth]");
-    println!("client_id = '{}'", resp["client_id"]);
-    println!("client_secret = '{}'", resp["client_secret"]);
+    println!("client_id = '{}'", resp.client_id.unwrap());
+    println!("client_secret = '{}'", resp.client_secret.unwrap());
     Ok(())
 }
 
@@ -117,28 +119,17 @@ fn run() -> Result<()> {
     hashtags(&config.server, &config.auth.token)
 }
 
-#[derive(Deserialize)]
-struct Token {
-    access_token: String,
-    // unused fields
-    /*
-    token_type: String,
-    created_at: u64,
-    scope: String,
-    */
-}
 fn token<S: AsRef<str>>(server: S, client_id: S, client_secret: S, code: S) -> Result<String> {
     let response = client()?
         .post(format!("https://{}/oauth/token", server.as_ref()))
-        .json(&HashMap::from([
-            // TODO: struct + serialize instead
-            ("redirect_uri", "urn:ietf:wg:oauth:2.0:oob"),
-            ("grant_type", "authorization_code"),
-            ("code", code.as_ref()),
-            ("client_id", client_id.as_ref()),
-            ("client_secret", client_secret.as_ref()),
-            ("scope", "read"),
-        ]))
+        .json(&TokenQuery {
+            redirect_uri: OOB_URI,
+            grant_type: GrantType::AuthorizationCode,
+            code: Some(code.as_ref()),
+            client_id: client_id.as_ref(),
+            client_secret: client_secret.as_ref(),
+            scope: Some(Scope::Read),
+        })
         .send()
         .with_context(|| "token post failed")?;
     let status_err = response.error_for_status_ref();
@@ -164,6 +155,6 @@ fn hashtags(server: &str, token: &str) -> Result<()> {
         .send()
         .with_context(|| "hashtags get failed")?
         .text();
-    dbg!(response.unwrap());
+    println!("{}", response.unwrap());
     Ok(())
 }
