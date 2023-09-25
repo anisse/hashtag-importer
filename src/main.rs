@@ -1,8 +1,11 @@
 mod types;
 
+use std::collections::HashSet;
 use std::env;
 use std::io;
 use std::io::Write;
+use std::thread::sleep;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -116,7 +119,25 @@ fn run() -> Result<()> {
         &std::fs::read_to_string("config.toml").with_context(|| "cannot read config.toml")?,
     )
     .with_context(|| "invalid config")?;
-    hashtags(&config.server, &config.auth.token)
+    let source_servers = [
+        "mastodon.social",
+        "fosstodon.org",
+        "hachyderm.io",
+        "chaos.social",
+        "ioc.exchange",
+    ];
+    for server in source_servers.iter() {
+        let remote_statuses: HashSet<Status> =
+            HashSet::from_iter(hashtags(server, "")?.into_iter());
+        let local_statuses: HashSet<Status> =
+            HashSet::from_iter(hashtags(&config.server, &config.auth.token)?.into_iter());
+        for status in remote_statuses.difference(&local_statuses) {
+            println!("Importing {} from {server}", status.url);
+            import(&config.server, &config.auth.token, &status.url)?;
+            sleep(Duration::from_secs(5));
+        }
+    }
+    Ok(())
 }
 
 fn token<S: AsRef<str>>(server: S, client_id: S, client_secret: S, code: S) -> Result<String> {
@@ -145,16 +166,37 @@ fn token<S: AsRef<str>>(server: S, client_id: S, client_secret: S, code: S) -> R
     Ok(token.access_token)
 }
 
-fn hashtags(server: &str, token: &str) -> Result<()> {
-    let response = client()?
+fn hashtags(server: &str, token: &str) -> Result<Vec<Status>> {
+    let response: Vec<Status> = client()?
         .get(format!(
             //"https://{server}/api/v2/search?q=https%3A%2F%2Fmastodon.social%2F%40jfstudiospaleoart%40sauropods.win%2F111112209821147036&resolve=true&limit=11&type=statuses"
-            "https://{server}/api/v1/timelines/tag/TearsOfTheKingdom"
+            "https://{server}/api/v1/timelines/tag/KernelRecipes?any[]=kr2023&any[]=KernelRecipes2023"
         ))
         .header("Authorization", format!("Bearer {token}"))
         .send()
         .with_context(|| "hashtags get failed")?
-        .text();
-    println!("{}", response.unwrap());
+        .json()
+        .with_context(|| "hash tag staencodetuses body not valid json")?;
+    Ok(response)
+}
+
+fn import(server: &str, token: &str, url: &str) -> Result<()> {
+    let response = client()?
+        .get(
+            reqwest::Url::parse_with_params(
+                &format!("https://{server}/api/v2/search"),
+                &[
+                    ("q", url),
+                    ("resolve", "true"),
+                    ("limit", "25"),
+                    ("type", "statuses"),
+                ],
+            )
+            .with_context(|| format!("import search url for {url}"))?
+            .as_str(),
+        )
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .with_context(|| "import get failed")?;
     Ok(())
 }

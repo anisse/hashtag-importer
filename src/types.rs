@@ -55,3 +55,8 @@ pub struct Token {
     pub created_at: u64,
     pub scope: String,
 }
+
+#[derive(Debug, Deserialize, PartialEq, Eq, Hash)]
+pub struct Status {
+    pub url: String,
+}
