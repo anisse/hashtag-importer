@@ -127,10 +127,11 @@ fn run() -> Result<()> {
         "ioc.exchange",
     ];
     for server in source_servers.iter() {
+        //TODO: dedup multi-source statuses
         let remote_statuses: HashSet<Status> =
-            HashSet::from_iter(hashtags(server, "")?.into_iter());
+            HashSet::from_iter(hashtags(server, "", 12)?.into_iter());
         let local_statuses: HashSet<Status> =
-            HashSet::from_iter(hashtags(&config.server, &config.auth.token)?.into_iter());
+            HashSet::from_iter(hashtags(&config.server, &config.auth.token, 40)?.into_iter());
         for status in remote_statuses.difference(&local_statuses) {
             println!("Importing {} from {server}", status.url);
             //TODO: check for importing errors
@@ -167,11 +168,11 @@ fn token<S: AsRef<str>>(server: S, client_id: S, client_secret: S, code: S) -> R
     Ok(token.access_token)
 }
 
-fn hashtags(server: &str, token: &str) -> Result<Vec<Status>> {
+fn hashtags(server: &str, token: &str, limit: u8) -> Result<Vec<Status>> {
     let response: Vec<Status> = client()?
         .get(format!(
             //"https://{server}/api/v2/search?q=https%3A%2F%2Fmastodon.social%2F%40jfstudiospaleoart%40sauropods.win%2F111112209821147036&resolve=true&limit=11&type=statuses"
-            "https://{server}/api/v1/timelines/tag/KernelRecipes?any[]=kr2023&any[]=KernelRecipes2023"
+            "https://{server}/api/v1/timelines/tag/KernelRecipes?any[]=kr2023&any[]=KernelRecipes2023&limit={limit}"
         ))
         .header("Authorization", format!("Bearer {token}"))
         .send()
