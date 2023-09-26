@@ -133,6 +133,7 @@ fn run() -> Result<()> {
             HashSet::from_iter(hashtags(&config.server, &config.auth.token)?.into_iter());
         for status in remote_statuses.difference(&local_statuses) {
             println!("Importing {} from {server}", status.url);
+            //TODO: check for importing errors
             import(&config.server, &config.auth.token, &status.url)?;
             sleep(Duration::from_secs(5));
         }
@@ -181,7 +182,7 @@ fn hashtags(server: &str, token: &str) -> Result<Vec<Status>> {
 }
 
 fn import(server: &str, token: &str, url: &str) -> Result<()> {
-    let response = client()?
+    let _response = client()?
         .get(
             reqwest::Url::parse_with_params(
                 &format!("https://{server}/api/v2/search"),
