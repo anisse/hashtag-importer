@@ -56,7 +56,7 @@ pub struct Token {
     pub scope: String,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Deserialize)]
 pub struct Status {
     pub url: String,
 }

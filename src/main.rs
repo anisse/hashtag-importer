@@ -126,18 +126,20 @@ fn run() -> Result<()> {
         "chaos.social",
         "ioc.exchange",
     ];
+    let mut remote_statuses: HashSet<String> = HashSet::new();
     for server in source_servers.iter() {
-        //TODO: dedup multi-source statuses
-        let remote_statuses: HashSet<Status> =
-            HashSet::from_iter(hashtags(server, "", 12)?.into_iter());
-        let local_statuses: HashSet<Status> =
-            HashSet::from_iter(hashtags(&config.server, &config.auth.token, 40)?.into_iter());
-        for status in remote_statuses.difference(&local_statuses) {
-            println!("Importing {} from {server}", status.url);
-            //TODO: check for importing errors
-            import(&config.server, &config.auth.token, &status.url)?;
-            sleep(Duration::from_secs(5));
-        }
+        remote_statuses.extend(hashtags(server, "", 25)?.into_iter().map(|s| s.url));
+    }
+    let local_statuses: HashSet<String> = HashSet::from_iter(
+        hashtags(&config.server, &config.auth.token, 40)?
+            .into_iter()
+            .map(|s| s.url),
+    );
+    for status in remote_statuses.difference(&local_statuses) {
+        println!("Importing {}", status);
+        //TODO: check for importing errors
+        import(&config.server, &config.auth.token, status)?;
+        sleep(Duration::from_secs(5));
     }
     Ok(())
 }
