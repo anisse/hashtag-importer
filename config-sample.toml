@@ -4,3 +4,19 @@ server = 'your mastodon server'
 client_id = 'fake client id'
 client_secret = 'fake client secret'
 token = 'fake user token'
+
+[[hashtag]]
+# Be very careful: base tag needs to exist in source servers otherwiise additionnal tags will be useless
+name = 'KernelRecipes'
+any = [ 'kr2023', 'KernelRecipes2023' ]
+sources = [
+        "fosstodon.org",
+        "hachyderm.io",
+    ]
+
+[[hashtag]]
+name = 'TOTK'
+sources = [
+        "shelter.moe",
+        "mstdn.games",
+    ]

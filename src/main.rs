@@ -72,12 +72,20 @@ fn create_app() -> Result<()> {
 struct Config {
     auth: Auth,
     server: String,
+    hashtag: Vec<Hashtag>,
 }
 #[derive(Deserialize)]
 struct Auth {
     client_id: String,
     client_secret: String,
     token: String,
+}
+#[derive(Deserialize)]
+struct Hashtag {
+    //Be very careful: base tag needs to exist in source servers otherwiise additionnal tags will be useless
+    name: String,
+    any: Option<Vec<String>>,
+    sources: Vec<String>,
 }
 
 fn user_auth() -> Result<()> {
@@ -108,40 +116,39 @@ fn user_auth() -> Result<()> {
 }
 
 fn run() -> Result<()> {
-    /*
-    let body = reqwest::blocking::get("https://mastodon.social/api/v1/timelines/tag/fakeshakespearefacts?max_id=111111639034423756")
-        .map_err(|e| format!("get failed: {e}"))?
-        .text()
-        .map_err(|e| format!("body not valid text: {e}"))?;
-    println!("{body}");
-    */
     let config: Config = toml::from_str(
         &std::fs::read_to_string("config.toml").with_context(|| "cannot read config.toml")?,
     )
     .with_context(|| "invalid config")?;
-    let source_servers = [
-        "mastodon.social",
-        "fosstodon.org",
-        "hachyderm.io",
-        "chaos.social",
-        "ioc.exchange",
-    ];
-    let mut remote_statuses: HashSet<String> = HashSet::new();
-    for server in source_servers.iter() {
-        remote_statuses.extend(hashtags(server, "", 25)?.into_iter().map(|s| s.url));
-    }
-    let local_statuses: HashSet<String> = HashSet::from_iter(
-        hashtags(&config.server, &config.auth.token, 40)?
+    println!("{} hashtags in config", config.hashtag.len());
+    for hashtag in config.hashtag.iter() {
+        let mut remote_statuses: HashSet<String> = HashSet::new();
+        for server in hashtag.sources.iter() {
+            remote_statuses.extend(
+                hashtags(server, "", &hashtag.name, &hashtag.any, 25)?
+                    .into_iter()
+                    .map(|s| s.url),
+            );
+        }
+        let local_statuses: HashSet<String> = HashSet::from_iter(
+            hashtags(
+                &config.server,
+                &config.auth.token,
+                &hashtag.name,
+                &hashtag.any,
+                40,
+            )?
             .into_iter()
             .map(|s| s.url),
-    );
-    for status in remote_statuses.difference(&local_statuses) {
-        println!("Importing {}", status);
-        let res = import(&config.server, &config.auth.token, status);
-        if let Err(e) = res {
-            println!("Error: {e}");
+        );
+        for status in remote_statuses.difference(&local_statuses) {
+            println!("Importing {}", status);
+            let res = import(&config.server, &config.auth.token, status);
+            if let Err(e) = res {
+                println!("Error: {e}");
+            }
+            sleep(Duration::from_secs(60));
         }
-        sleep(Duration::from_secs(60));
     }
     Ok(())
 }
@@ -166,12 +173,25 @@ fn token<S: AsRef<str>>(server: S, client_id: S, client_secret: S, code: S) -> R
     Ok(token.access_token)
 }
 
-fn hashtags(server: &str, token: &str, limit: u8) -> Result<Vec<Status>> {
+fn hashtags(
+    server: &str,
+    token: &str,
+    name: &str,
+    any: &Option<Vec<String>>,
+    limit: u8,
+) -> Result<Vec<Status>> {
     let response: Vec<Status> = client()?
-        .get(format!(
-            //"https://{server}/api/v2/search?q=https%3A%2F%2Fmastodon.social%2F%40jfstudiospaleoart%40sauropods.win%2F111112209821147036&resolve=true&limit=11&type=statuses"
-            "https://{server}/api/v1/timelines/tag/KernelRecipes?any[]=kr2023&any[]=KernelRecipes2023&limit={limit}"
-        ))
+        .get(
+            reqwest::Url::parse_with_params(
+                &format!("https://{server}/api/v1/timelines/tag/{name}?limit={limit}"),
+                //"any[]=kr2023&any[]=KernelRecipes2023",
+                any.iter()
+                    .flat_map(|l| l.iter().map(|h| ("any[]", h)))
+                    .collect::<Vec<_>>(),
+            )
+            .with_context(|| format!("hashtags url for {server}"))?
+            .as_str(),
+        )
         .header("Authorization", format!("Bearer {token}"))
         .send()
         .with_context(|| "hashtags get failed")?
