@@ -137,9 +137,11 @@ fn run() -> Result<()> {
     );
     for status in remote_statuses.difference(&local_statuses) {
         println!("Importing {}", status);
-        //TODO: check for importing errors
-        import(&config.server, &config.auth.token, status)?;
-        sleep(Duration::from_secs(5));
+        let res = import(&config.server, &config.auth.token, status);
+        if let Err(e) = res {
+            println!("Error: {e}");
+        }
+        sleep(Duration::from_secs(60));
     }
     Ok(())
 }
@@ -156,14 +158,8 @@ fn token<S: AsRef<str>>(server: S, client_id: S, client_secret: S, code: S) -> R
             scope: Some(Scope::Read),
         })
         .send()
-        .with_context(|| "token post failed")?;
-    let status_err = response.error_for_status_ref();
-    if let Err(e) = status_err {
-        bail!(
-            "Got response {}: {e}",
-            response.text().with_context(|| "body not valid text")?
-        );
-    }
+        .with_context(|| "token post failed")?
+        .with_error_text()?;
     let token: Token = response
         .json()
         .with_context(|| "token body not valid json")?;
@@ -179,13 +175,14 @@ fn hashtags(server: &str, token: &str, limit: u8) -> Result<Vec<Status>> {
         .header("Authorization", format!("Bearer {token}"))
         .send()
         .with_context(|| "hashtags get failed")?
+        .with_error_text()?
         .json()
-        .with_context(|| "hash tag staencodetuses body not valid json")?;
+        .with_context(|| "hash tag statuses body not valid json")?;
     Ok(response)
 }
 
 fn import(server: &str, token: &str, url: &str) -> Result<()> {
-    let _response = client()?
+    client()?
         .get(
             reqwest::Url::parse_with_params(
                 &format!("https://{server}/api/v2/search"),
@@ -201,6 +198,25 @@ fn import(server: &str, token: &str, url: &str) -> Result<()> {
         )
         .header("Authorization", format!("Bearer {token}"))
         .send()
-        .with_context(|| "import get failed")?;
+        .with_context(|| "import get failed")?
+        .with_error_text()?;
     Ok(())
+}
+
+trait WithErrorText {
+    fn with_error_text(self) -> Result<Self>
+    where
+        Self: Sized;
+}
+impl WithErrorText for reqwest::blocking::Response {
+    fn with_error_text(self) -> Result<Self> {
+        let status_err = self.error_for_status_ref();
+        if let Err(e) = status_err {
+            bail!(
+                "Got response {}: {e}",
+                self.text().with_context(|| "body not valid text")?
+            );
+        }
+        Ok(self)
+    }
 }
