@@ -1,10 +1,14 @@
 use std::collections::HashSet;
+use std::hash::Hash;
 use std::io;
 use std::io::Write;
 use std::thread::sleep;
-use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use core::num::NonZeroU32;
+use std::time::Instant;
+
+use anyhow::{anyhow, bail, Context, Result};
+use governor::{Quota, RateLimiter};
 
 use crate::config::*;
 use crate::types::*;
@@ -83,10 +87,20 @@ pub(crate) fn run() -> Result<()> {
         config.hashtag.len(),
         config.hashtag.iter().map(|h| &h.name).collect::<Vec<_>>()
     );
+    // Rate limiters
+    // Only one query (hashtag fetch or import) per minute on all servers
+    let lim_queries = RateLimiter::keyed(Quota::per_minute(NonZeroU32::new(1).unwrap()));
+    // At most 5 post imports per remote instance per hour
+    let lim_upstreams = RateLimiter::keyed(Quota::per_hour(NonZeroU32::new(5).unwrap()));
+    // At most 20 post imports into our server per hour
+    let lim_import = RateLimiter::direct(Quota::per_hour(NonZeroU32::new(20).unwrap()));
+    // At most 4 runs per hour (average of 15min between runs)
+    let lim_loop = RateLimiter::direct(Quota::per_hour(NonZeroU32::new(4).unwrap()));
     loop {
         for hashtag in config.hashtag.iter() {
             let mut remote_statuses: HashSet<String> = HashSet::new();
             for server in hashtag.sources.iter() {
+                wait_until_key(&lim_queries, server);
                 remote_statuses.extend(
                     hashtags(server, "", &hashtag.name, &hashtag.any, 25)?
                         .into_iter()
@@ -98,6 +112,7 @@ pub(crate) fn run() -> Result<()> {
              * post. So importing remote posts older than the latest local post means we won't see them
              * on the next iteration if we use since_id.
              */
+            wait_until_key(&lim_queries, &config.server);
             let local_statuses: HashSet<String> = HashSet::from_iter(
                 hashtags(
                     &config.server,
@@ -111,17 +126,52 @@ pub(crate) fn run() -> Result<()> {
             );
             for status in remote_statuses.difference(&local_statuses) {
                 println!("Hashtag {}: importing {status}", hashtag.name);
+                let host = match reqwest::Url::parse(status)
+                    .context("unparseable status url")
+                    .and_then(|u| {
+                        u.host_str()
+                            .map(|h| h.to_string())
+                            .ok_or(anyhow!("no host"))
+                    }) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        println!("Skipping {status}: {e}");
+                        continue;
+                    }
+                };
+                if lim_upstreams.check_key(&host).is_err() {
+                    println!("Skipping {status} for now: reached quota for {host}");
+                    continue;
+                }
+                wait_until(&lim_import);
+                wait_until_key(&lim_queries, &config.server);
                 let res = import(&config.server, &config.auth.token, status);
                 if let Err(e) = res {
                     println!("Error: {e}");
                 }
-                // Wait 1m between imports
-                sleep(Duration::from_secs(60));
             }
         }
         print!(".");
-        // Wait 15m before doing any other query
-        sleep(Duration::from_secs(60 * 15));
+        wait_until(&lim_loop);
+        // This one can grow unbounded, shrink it to cleanup status
+        lim_upstreams.shrink_to_fit();
+    }
+}
+
+// This wouldn't be needed if using async
+// TODO: as a trait, maybe
+fn wait_until_key<K>(lim: &governor::DefaultKeyedRateLimiter<K>, key: &K)
+where
+    K: Clone + Hash + Eq,
+{
+    while let Err(e) = lim.check_key(key) {
+        sleep(e.wait_time_from(Instant::now()));
+    }
+}
+// TODO: as a trait, maybe
+fn wait_until(lim: &governor::DefaultDirectRateLimiter) {
+    while let Err(e) = lim.check() {
+        sleep(e.wait_time_from(Instant::now()));
     }
 }
 
