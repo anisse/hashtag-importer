@@ -78,37 +78,51 @@ pub(crate) fn user_auth() -> Result<()> {
 
 pub(crate) fn run() -> Result<()> {
     let config = load_config("config.toml")?;
-    println!("{} hashtags in config", config.hashtag.len());
-    for hashtag in config.hashtag.iter() {
-        let mut remote_statuses: HashSet<String> = HashSet::new();
-        for server in hashtag.sources.iter() {
-            remote_statuses.extend(
-                hashtags(server, "", &hashtag.name, &hashtag.any, 25)?
-                    .into_iter()
-                    .map(|s| s.url),
-            );
-        }
-        let local_statuses: HashSet<String> = HashSet::from_iter(
-            hashtags(
-                &config.server,
-                &config.auth.token,
-                &hashtag.name,
-                &hashtag.any,
-                40,
-            )?
-            .into_iter()
-            .map(|s| s.url),
-        );
-        for status in remote_statuses.difference(&local_statuses) {
-            println!("Importing {}", status);
-            let res = import(&config.server, &config.auth.token, status);
-            if let Err(e) = res {
-                println!("Error: {e}");
+    println!(
+        "{} hashtags in config: {:?}",
+        config.hashtag.len(),
+        config.hashtag.iter().map(|h| &h.name).collect::<Vec<_>>()
+    );
+    loop {
+        for hashtag in config.hashtag.iter() {
+            let mut remote_statuses: HashSet<String> = HashSet::new();
+            for server in hashtag.sources.iter() {
+                remote_statuses.extend(
+                    hashtags(server, "", &hashtag.name, &hashtag.any, 25)?
+                        .into_iter()
+                        .map(|s| s.url),
+                );
             }
-            sleep(Duration::from_secs(60));
+            /* Because of the way Mastodon IDs work, we cannot kindly ask the server to give us posts
+             * 'since_id': the snowflake ID variant used by mastodon contains the timestamp of the
+             * post. So importing remote posts older than the latest local post means we won't see them
+             * on the next iteration if we use since_id.
+             */
+            let local_statuses: HashSet<String> = HashSet::from_iter(
+                hashtags(
+                    &config.server,
+                    &config.auth.token,
+                    &hashtag.name,
+                    &hashtag.any,
+                    40,
+                )?
+                .into_iter()
+                .map(|s| s.url),
+            );
+            for status in remote_statuses.difference(&local_statuses) {
+                println!("Hashtag {}: importing {status}", hashtag.name);
+                let res = import(&config.server, &config.auth.token, status);
+                if let Err(e) = res {
+                    println!("Error: {e}");
+                }
+                // Wait 1m between imports
+                sleep(Duration::from_secs(60));
+            }
         }
+        print!(".");
+        // Wait 15m before doing any other query
+        sleep(Duration::from_secs(60 * 15));
     }
-    Ok(())
 }
 
 fn token<S: AsRef<str>>(server: S, client_id: S, client_secret: S, code: S) -> Result<String> {
