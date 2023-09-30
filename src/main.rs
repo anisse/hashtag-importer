@@ -207,7 +207,8 @@ impl WithErrorText for reqwest::blocking::Response {
         if let Err(e) = status_err {
             bail!(
                 "Got response {}: {e}",
-                self.text().context("body not valid text")?
+                self.text()
+                    .with_context(|| format!("Got {e} and cannot read body"))?
             );
         }
         Ok(self)
