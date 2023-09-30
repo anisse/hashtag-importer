@@ -35,16 +35,16 @@ fn client() -> Result<reqwest::blocking::Client> {
         .user_agent(USER_AGENT)
         .cookie_store(true)
         .build()
-        .with_context(|| "cannot build custom client")
+        .context("cannot build custom client")
 }
 
 fn create_app() -> Result<()> {
     print!("Enter your mastodon server api domain name: ");
-    io::stdout().flush().with_context(|| "flush")?;
+    io::stdout().flush().context("flush")?;
     let mut server_domain = String::new();
     io::stdin()
         .read_line(&mut server_domain)
-        .with_context(|| "unable to read stdin")?;
+        .context("unable to read stdin")?;
     let url = reqwest::Url::parse(format!("https://{server_domain}/").as_str())
         .with_context(|| format!("{server_domain} is not a domain"))?;
     // Register the app
@@ -57,9 +57,9 @@ fn create_app() -> Result<()> {
             scopes: Scope::Read,
         })
         .send()
-        .with_context(|| "create app post failed")?
+        .context("create app post failed")?
         .json()
-        .with_context(|| "create app response body not valid json")?;
+        .context("create app response body not valid json")?;
     dbg!(&resp);
     println!("Copy paste this into your config.toml:");
     println!("[auth]");
@@ -89,20 +89,19 @@ struct Hashtag {
 }
 
 fn user_auth() -> Result<()> {
-    let config: Config = toml::from_str(
-        &std::fs::read_to_string("config.toml").with_context(|| "cannot read config.toml")?,
-    )
-    .with_context(|| "invalid config")?;
+    let config: Config =
+        toml::from_str(&std::fs::read_to_string("config.toml").context("cannot read config.toml")?)
+            .context("invalid config")?;
     webbrowser::open(&format!(
         "https://{}/oauth/authorize?response_type=code&client_id={}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=read",
         config.server, config.auth.client_id,
     ))
-    .with_context(|| "cannot show auth in browser")?;
+    .context("cannot show auth in browser")?;
     println!("Paste the code your server gave you:");
     let mut code = String::new();
     io::stdin()
         .read_line(&mut code)
-        .with_context(|| "unable to read stdin")?;
+        .context("unable to read stdin")?;
     let token = token(
         &config.server,
         &config.auth.client_id,
@@ -116,10 +115,9 @@ fn user_auth() -> Result<()> {
 }
 
 fn run() -> Result<()> {
-    let config: Config = toml::from_str(
-        &std::fs::read_to_string("config.toml").with_context(|| "cannot read config.toml")?,
-    )
-    .with_context(|| "invalid config")?;
+    let config: Config =
+        toml::from_str(&std::fs::read_to_string("config.toml").context("cannot read config.toml")?)
+            .context("invalid config")?;
     println!("{} hashtags in config", config.hashtag.len());
     for hashtag in config.hashtag.iter() {
         let mut remote_statuses: HashSet<String> = HashSet::new();
@@ -165,11 +163,9 @@ fn token<S: AsRef<str>>(server: S, client_id: S, client_secret: S, code: S) -> R
             scope: Some(Scope::Read),
         })
         .send()
-        .with_context(|| "token post failed")?
+        .context("token post failed")?
         .with_error_text()?;
-    let token: Token = response
-        .json()
-        .with_context(|| "token body not valid json")?;
+    let token: Token = response.json().context("token body not valid json")?;
     Ok(token.access_token)
 }
 
@@ -194,10 +190,10 @@ fn hashtags(
         )
         .header("Authorization", format!("Bearer {token}"))
         .send()
-        .with_context(|| "hashtags get failed")?
+        .context("hashtags get failed")?
         .with_error_text()?
         .json()
-        .with_context(|| "hash tag statuses body not valid json")?;
+        .context("hash tag statuses body not valid json")?;
     Ok(response)
 }
 
@@ -218,7 +214,7 @@ fn import(server: &str, token: &str, url: &str) -> Result<()> {
         )
         .header("Authorization", format!("Bearer {token}"))
         .send()
-        .with_context(|| "import get failed")?
+        .context("import get failed")?
         .with_error_text()?;
     Ok(())
 }
@@ -234,7 +230,7 @@ impl WithErrorText for reqwest::blocking::Response {
         if let Err(e) = status_err {
             bail!(
                 "Got response {}: {e}",
-                self.text().with_context(|| "body not valid text")?
+                self.text().context("body not valid text")?
             );
         }
         Ok(self)
