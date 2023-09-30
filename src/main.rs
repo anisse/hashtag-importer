@@ -1,3 +1,4 @@
+mod config;
 mod types;
 
 use std::collections::HashSet;
@@ -8,8 +9,8 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use serde::Deserialize;
 
+use crate::config::*;
 use crate::types::*;
 
 const USER_AGENT: &str = concat!("hashtag-importer v", env!("CARGO_PKG_VERSION"));
@@ -68,30 +69,8 @@ fn create_app() -> Result<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct Config {
-    auth: Auth,
-    server: String,
-    hashtag: Vec<Hashtag>,
-}
-#[derive(Deserialize)]
-struct Auth {
-    client_id: String,
-    client_secret: String,
-    token: String,
-}
-#[derive(Deserialize)]
-struct Hashtag {
-    //Be very careful: base tag needs to exist in source servers otherwiise additionnal tags will be useless
-    name: String,
-    any: Option<Vec<String>>,
-    sources: Vec<String>,
-}
-
 fn user_auth() -> Result<()> {
-    let config: Config =
-        toml::from_str(&std::fs::read_to_string("config.toml").context("cannot read config.toml")?)
-            .context("invalid config")?;
+    let config = load_config("config.toml")?;
     webbrowser::open(&format!(
         "https://{}/oauth/authorize?response_type=code&client_id={}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=read",
         config.server, config.auth.client_id,
@@ -108,16 +87,14 @@ fn user_auth() -> Result<()> {
         &config.auth.client_secret,
         &code.trim().to_string(),
     )?;
-    println!("Updated your config.toml auth section:");
+    println!("Update your config.toml auth section:");
     println!("[auth]");
     println!("token = '{token}'");
     Ok(())
 }
 
 fn run() -> Result<()> {
-    let config: Config =
-        toml::from_str(&std::fs::read_to_string("config.toml").context("cannot read config.toml")?)
-            .context("invalid config")?;
+    let config = load_config("config.toml")?;
     println!("{} hashtags in config", config.hashtag.len());
     for hashtag in config.hashtag.iter() {
         let mut remote_statuses: HashSet<String> = HashSet::new();
