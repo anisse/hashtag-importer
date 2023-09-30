@@ -14,8 +14,8 @@ use crate::config::*;
 use crate::types::*;
 
 const USER_AGENT: &str = concat!("hashtag-importer v", env!("CARGO_PKG_VERSION"));
-const CLIENT_NAME: &str = "hashtag-importer test version";
-const CLIENT_WEBSITE: &str = "https://github.com/anisse/hashtag-importer?soon";
+const CLIENT_NAME: &str = "hashtag-importer";
+const CLIENT_WEBSITE: &str = "https://github.com/anisse/hashtag-importer";
 
 fn client() -> Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
