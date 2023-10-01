@@ -96,8 +96,9 @@ pub(crate) fn run() -> Result<()> {
     let lim_import = RateLimiter::direct(Quota::per_hour(NonZeroU32::new(20).unwrap()));
     // At most 4 runs per hour (average of 15min between runs)
     let lim_loop = RateLimiter::direct(Quota::per_hour(NonZeroU32::new(4).unwrap()));
+    let mut imported_statuses: Vec<HashSet<String>> = vec![HashSet::new(); config.hashtag.len()];
     loop {
-        for hashtag in config.hashtag.iter() {
+        for (i, hashtag) in config.hashtag.iter().enumerate() {
             let mut remote_statuses: HashSet<String> = HashSet::new();
             for server in hashtag.sources.iter() {
                 wait_until_key(&lim_queries, server);
@@ -125,7 +126,15 @@ pub(crate) fn run() -> Result<()> {
                 .map(|s| s.url),
             );
             for status in remote_statuses.difference(&local_statuses) {
-                println!("Hashtag {}: importing {status}", hashtag.name);
+                if imported_statuses[i].contains(status) {
+                    /*
+                    println!(
+                        "Hashtag {}: skipping already imported {status}",
+                        hashtag.name
+                    );
+                    */
+                    continue;
+                }
                 let host = match reqwest::Url::parse(status)
                     .context("unparseable status url")
                     .and_then(|u| {
@@ -140,16 +149,25 @@ pub(crate) fn run() -> Result<()> {
                     }
                 };
                 if lim_upstreams.check_key(&host).is_err() {
-                    println!("Skipping {status} for now: reached quota for {host}");
+                    println!(
+                        "Hashtag {}: skipping {status} for now: reached quota for {host}",
+                        hashtag.name
+                    );
                     continue;
                 }
+                println!("Hashtag {}: importing {status}", hashtag.name);
                 wait_until(&lim_import);
                 wait_until_key(&lim_queries, &config.server);
                 let res = import(&config.server, &config.auth.token, status);
                 if let Err(e) = res {
                     println!("Error: {e}");
+                    continue;
                 }
+                imported_statuses[i].insert(status.to_string());
             }
+            // Keep only the intersection between imported, and seen this iteration.
+            // This is to prevent imported_status to grow unbounded
+            imported_statuses[i].retain(|s| remote_statuses.contains(s));
         }
         print!(".");
         wait_until(&lim_loop);
