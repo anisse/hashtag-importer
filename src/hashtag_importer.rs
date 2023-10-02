@@ -104,7 +104,10 @@ pub(crate) fn run() -> Result<()> {
                 wait_until_key(&lim_queries, server);
                 let list = match hashtags(server, "", &hashtag.name, &hashtag.any, 25) {
                     Err(e) => {
-                        println!("Hashtags remote {server} error: {e}");
+                        println!(
+                            "Hashtag {}: fetch remote {server} error: {e:#}",
+                            hashtag.name
+                        );
                         continue;
                     }
                     Ok(list) => list,
@@ -125,7 +128,10 @@ pub(crate) fn run() -> Result<()> {
                 40,
             ) {
                 Err(e) => {
-                    println!("Hashtags local {} error: {e}", config.server);
+                    println!(
+                        "Hashtag {}: fetch local {} error: {e:#}",
+                        hashtag.name, config.server
+                    );
                     continue;
                 }
                 Ok(list) => list,
@@ -151,7 +157,7 @@ pub(crate) fn run() -> Result<()> {
                     }) {
                     Ok(h) => h,
                     Err(e) => {
-                        println!("Skipping {status}: {e}");
+                        println!("Hashtag {}: skipping {status}: {e:#}", hashtag.name);
                         continue;
                     }
                 };
@@ -167,7 +173,7 @@ pub(crate) fn run() -> Result<()> {
                 wait_until_key(&lim_queries, &config.server);
                 let res = import(&config.server, &config.auth.token, status);
                 if let Err(e) = res {
-                    println!("Import error: {e}");
+                    println!("Hashtag {}: import error: {e:#}", hashtag.name);
                     continue;
                 }
                 imported_statuses[i].insert(status.to_string());
