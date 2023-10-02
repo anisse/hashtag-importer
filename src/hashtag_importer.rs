@@ -102,11 +102,14 @@ pub(crate) fn run() -> Result<()> {
             let mut remote_statuses: HashSet<String> = HashSet::new();
             for server in hashtag.sources.iter() {
                 wait_until_key(&lim_queries, server);
-                remote_statuses.extend(
-                    hashtags(server, "", &hashtag.name, &hashtag.any, 25)?
-                        .into_iter()
-                        .map(|s| s.url),
-                );
+                let list = match hashtags(server, "", &hashtag.name, &hashtag.any, 25) {
+                    Err(e) => {
+                        println!("Hashtags remote {server} error: {e}");
+                        continue;
+                    }
+                    Ok(list) => list,
+                };
+                remote_statuses.extend(list.into_iter().map(|s| s.url));
             }
             /* Because of the way Mastodon IDs work, we cannot kindly ask the server to give us posts
              * 'since_id': the snowflake ID variant used by mastodon contains the timestamp of the
@@ -114,17 +117,21 @@ pub(crate) fn run() -> Result<()> {
              * on the next iteration if we use since_id.
              */
             wait_until_key(&lim_queries, &config.server);
-            let local_statuses: HashSet<String> = HashSet::from_iter(
-                hashtags(
-                    &config.server,
-                    &config.auth.token,
-                    &hashtag.name,
-                    &hashtag.any,
-                    40,
-                )?
-                .into_iter()
-                .map(|s| s.url),
-            );
+            let list = match hashtags(
+                &config.server,
+                &config.auth.token,
+                &hashtag.name,
+                &hashtag.any,
+                40,
+            ) {
+                Err(e) => {
+                    println!("Hashtags local {} error: {e}", config.server);
+                    continue;
+                }
+                Ok(list) => list,
+            };
+            let local_statuses: HashSet<String> =
+                HashSet::from_iter(list.into_iter().map(|s| s.url));
             for status in remote_statuses.difference(&local_statuses) {
                 if imported_statuses[i].contains(status) {
                     /*
@@ -160,7 +167,7 @@ pub(crate) fn run() -> Result<()> {
                 wait_until_key(&lim_queries, &config.server);
                 let res = import(&config.server, &config.auth.token, status);
                 if let Err(e) = res {
-                    println!("Error: {e}");
+                    println!("Import error: {e}");
                     continue;
                 }
                 imported_statuses[i].insert(status.to_string());
