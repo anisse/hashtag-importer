@@ -13,9 +13,20 @@ In the fediverse, your server might not see all posts made by everyone, for a va
 
 It works by using the public hashtag timeline api of other servers, and then using the search api of your instance to import posts one by one.
 
-Have a look at the `config-sample.toml` file for how watched hashtags are configured.
-
-
 ## How to use
 
-TODO
+Beware: this isn't really set in stone yet. Installing the app is a two step-process:
+```sh
+hashtag-importer create-app # asks for your mastodon instances and registers the app there
+# manually edit your config.toml auth section, adding client_id and client_secret
+hashtag-importer user-auth # asks for permissions to your user account in order to read hashtag timelines and search for individual posts
+# manually edit your config.toml auth section again, adding token
+```
+
+Then, you want to add hashtags to your `config.toml`. Have a look at the `config-sample.toml` examples to see how watched hashtags are configured.
+
+The app is a long-running service. Run with:
+```sh
+hashtag-importer run
+```
+It expects the `config.toml` to be in the current directory.

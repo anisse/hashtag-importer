@@ -26,10 +26,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Create app when run for the first time; registers app on your server
+    /// Create app when run for the first time; registers this app on your mastodon instance
     CreateApp,
-    /// Authenticate user on server described on config.toml in order to get a token; needs the app
-    /// to have been created already.
+    /// Get permission to run as your user on server described on config.toml in order to get a token; needs the app
+    /// to have been created already. Only read permission (scope) is required, in order search
+    /// posts and read hashtag timelines.
     UserAuth,
     /// Run actual service based on config.toml
     Run,
