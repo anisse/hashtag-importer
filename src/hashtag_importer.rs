@@ -183,6 +183,7 @@ pub(crate) fn run() -> Result<()> {
             imported_statuses[i].retain(|s| remote_statuses.contains(s));
         }
         print!(".");
+        let _ = io::stdout().flush(); // we really don't care if it fails
         sleep(Duration::from_secs(5 * 60));
         wait_until(&lim_loop);
         // This one can grow unbounded, shrink it to cleanup status
