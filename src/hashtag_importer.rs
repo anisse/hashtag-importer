@@ -3,9 +3,9 @@ use std::hash::Hash;
 use std::io;
 use std::io::Write;
 use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 use core::num::NonZeroU32;
-use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use governor::{Quota, RateLimiter};
@@ -19,7 +19,7 @@ const CLIENT_WEBSITE: &str = "https://github.com/anisse/hashtag-importer";
 
 fn client() -> Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(Duration::from_secs(20))
         .user_agent(USER_AGENT)
         .cookie_store(true)
         .build()
@@ -170,6 +170,7 @@ pub(crate) fn run() -> Result<()> {
             imported_statuses[i].retain(|s| remote_statuses.contains(s));
         }
         print!(".");
+        sleep(Duration::from_secs(5 * 60));
         wait_until(&lim_loop);
         // This one can grow unbounded, shrink it to cleanup status
         lim_upstreams.shrink_to_fit();
