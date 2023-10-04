@@ -58,11 +58,10 @@ pub(crate) fn create_app() -> Result<()> {
 
 pub(crate) fn user_auth() -> Result<()> {
     let config = load_config("config.toml")?;
-    webbrowser::open(&format!(
-        "https://{}/oauth/authorize?response_type=code&client_id={}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=read",
+    println!("Open this link in your web browser to give the app read permission from your user account:
+https://{}/oauth/authorize?response_type=code&client_id={}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=read",
         config.server, config.auth.client_id,
-    ))
-    .context("cannot show auth in browser")?;
+    );
     println!("Paste the code your server gave you:");
     let mut code = String::new();
     io::stdin()
