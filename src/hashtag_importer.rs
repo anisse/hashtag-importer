@@ -98,88 +98,17 @@ pub(crate) fn run() -> Result<()> {
     let mut imported_statuses: Vec<HashSet<String>> = vec![HashSet::new(); config.hashtag.len()];
     loop {
         for (i, hashtag) in config.hashtag.iter().enumerate() {
-            let mut remote_statuses: HashSet<String> = HashSet::new();
-            for server in hashtag.sources.iter() {
-                wait_until_key(&lim_queries, server);
-                let list = match hashtags(server, "", &hashtag.name, &hashtag.any, 25) {
-                    Err(e) => {
-                        println!(
-                            "Hashtag {}: fetch remote {server} error: {e:#}",
-                            hashtag.name
-                        );
-                        continue;
-                    }
-                    Ok(list) => list,
-                };
-                remote_statuses.extend(list.into_iter().map(|s| s.url));
-            }
-            /* Because of the way Mastodon IDs work, we cannot kindly ask the server to give us posts
-             * 'since_id': the snowflake ID variant used by mastodon contains the timestamp of the
-             * post. So importing remote posts older than the latest local post means we won't see them
-             * on the next iteration if we use since_id.
-             */
-            wait_until_key(&lim_queries, &config.server);
-            let list = match hashtags(
-                &config.server,
-                &config.auth.token,
-                &hashtag.name,
-                &hashtag.any,
-                40,
+            if let Err(e) = import_hashtag(
+                &config,
+                hashtag,
+                &mut imported_statuses[i],
+                &lim_queries,
+                &lim_upstreams,
+                &lim_import,
             ) {
-                Err(e) => {
-                    println!(
-                        "Hashtag {}: fetch local {} error: {e:#}",
-                        hashtag.name, config.server
-                    );
-                    continue;
-                }
-                Ok(list) => list,
-            };
-            let local_statuses: HashSet<String> =
-                HashSet::from_iter(list.into_iter().map(|s| s.url));
-            for status in remote_statuses.difference(&local_statuses) {
-                if imported_statuses[i].contains(status) {
-                    /*
-                    println!(
-                        "Hashtag {}: skipping already imported {status}",
-                        hashtag.name
-                    );
-                    */
-                    continue;
-                }
-                let host = match reqwest::Url::parse(status)
-                    .context("unparseable status url")
-                    .and_then(|u| {
-                        u.host_str()
-                            .map(|h| h.to_string())
-                            .ok_or(anyhow!("no host"))
-                    }) {
-                    Ok(h) => h,
-                    Err(e) => {
-                        println!("Hashtag {}: skipping {status}: {e:#}", hashtag.name);
-                        continue;
-                    }
-                };
-                if lim_upstreams.check_key(&host).is_err() {
-                    println!(
-                        "Hashtag {}: skipping {status} for now: reached quota for {host}",
-                        hashtag.name
-                    );
-                    continue;
-                }
-                println!("Hashtag {}: importing {status}", hashtag.name);
-                wait_until(&lim_import);
-                wait_until_key(&lim_queries, &config.server);
-                let res = import(&config.server, &config.auth.token, status);
-                if let Err(e) = res {
-                    println!("Hashtag {}: import error: {e:#}", hashtag.name);
-                    continue;
-                }
-                imported_statuses[i].insert(status.to_string());
+                println!("\nHashtag {}: {e:#}", hashtag.name);
+                continue;
             }
-            // Keep only the intersection between imported, and seen this iteration.
-            // This is to prevent imported_status to grow unbounded
-            imported_statuses[i].retain(|s| remote_statuses.contains(s));
         }
         print!(".");
         let _ = io::stdout().flush(); // we really don't care if it fails
@@ -188,6 +117,77 @@ pub(crate) fn run() -> Result<()> {
         // This one can grow unbounded, shrink it to cleanup status
         lim_upstreams.shrink_to_fit();
     }
+}
+
+fn import_hashtag(
+    config: &Config,
+    hashtag: &Hashtag,
+    imported_statuses: &mut HashSet<String>,
+    lim_queries: &governor::DefaultKeyedRateLimiter<String>,
+    lim_upstreams: &governor::DefaultKeyedRateLimiter<String>,
+    lim_import: &governor::DefaultDirectRateLimiter,
+) -> Result<()> {
+    let mut remote_statuses: HashSet<String> = HashSet::new();
+    for server in hashtag.sources.iter() {
+        wait_until_key(lim_queries, server);
+        let list = hashtags(server, "", &hashtag.name, &hashtag.any, 25)
+            .with_context(|| format!("fetch remote {server} error"))?;
+        remote_statuses.extend(list.into_iter().map(|s| s.url));
+    }
+    /* Because of the way Mastodon IDs work, we cannot kindly ask the server to give us posts
+     * 'since_id': the snowflake ID variant used by mastodon contains the timestamp of the
+     * post. So importing remote posts older than the latest local post means we won't see them
+     * on the next iteration if we use since_id.
+     */
+    wait_until_key(lim_queries, &config.server);
+    let list = hashtags(
+        &config.server,
+        &config.auth.token,
+        &hashtag.name,
+        &hashtag.any,
+        40,
+    )
+    .with_context(|| format!("fetch local {} error", config.server))?;
+    let local_statuses: HashSet<String> = HashSet::from_iter(list.into_iter().map(|s| s.url));
+    for status in remote_statuses.difference(&local_statuses) {
+        if imported_statuses.contains(status) {
+            continue;
+        }
+        if let Err(e) = import_status(status, config, lim_queries, lim_upstreams, lim_import) {
+            println!("\nHashtag {}: skipping {status} : {e:#}", hashtag.name);
+            continue;
+        }
+        println!("\nHashtag {}: imported {status}", hashtag.name);
+        imported_statuses.insert(status.to_string());
+    }
+    // Keep only the intersection between imported, and seen this iteration.
+    // This is to prevent imported_status to grow unbounded
+    imported_statuses.retain(|s| remote_statuses.contains(s));
+    Ok(())
+}
+
+fn import_status(
+    status: &str,
+    config: &Config,
+    lim_queries: &governor::DefaultKeyedRateLimiter<String>,
+    lim_upstreams: &governor::DefaultKeyedRateLimiter<String>,
+    lim_import: &governor::DefaultDirectRateLimiter,
+) -> Result<()> {
+    let host = reqwest::Url::parse(status)
+        .context("unparseable status url")
+        .and_then(|u| {
+            u.host_str()
+                .map(|h| h.to_string())
+                .ok_or(anyhow!("no host"))
+        })
+        .context("bad url")?;
+    if lim_upstreams.check_key(&host).is_err() {
+        bail!("for now reached quota for {host}");
+    }
+    wait_until(lim_import);
+    wait_until_key(lim_queries, &config.server);
+    import(&config.server, &config.auth.token, status).context("import error ")?;
+    Ok(())
 }
 
 // This wouldn't be needed if using async
