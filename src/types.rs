@@ -59,4 +59,6 @@ pub struct Token {
 #[derive(Deserialize)]
 pub struct Status {
     pub url: String,
+    pub created_at: iso8601_timestamp::Timestamp,
+    pub edited_at: Option<iso8601_timestamp::Timestamp>,
 }
