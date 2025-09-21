@@ -49,6 +49,7 @@ pub enum GrantType {
 }
 
 #[derive(Deserialize)]
+#[expect(dead_code)]
 pub struct Token {
     pub access_token: String,
     pub token_type: String,
