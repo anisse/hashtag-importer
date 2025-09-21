@@ -62,4 +62,12 @@ pub struct Status {
     pub url: String,
     pub created_at: iso8601_timestamp::Timestamp,
     pub edited_at: Option<iso8601_timestamp::Timestamp>,
+    pub account: Account,
+}
+
+#[derive(Deserialize)]
+#[expect(dead_code)]
+pub struct Account {
+    pub id: String,
+    pub url: String,
 }

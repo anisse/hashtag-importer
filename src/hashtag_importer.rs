@@ -96,6 +96,16 @@ pub(crate) fn run() -> Result<()> {
     // At most 4 runs per hour (average of 15min between runs)
     let lim_loop = RateLimiter::direct(Quota::per_hour(NonZeroU32::new(4).unwrap()));
     let mut imported_statuses: Vec<HashSet<String>> = vec![HashSet::new(); config.hashtag.len()];
+    let mut ignore_accounts = AccountListType::Mutes
+        .list(&config.server, &config.auth.token)
+        .context("getting mutes for account")?;
+    wait_until_key(&lim_queries, &config.server);
+    ignore_accounts.extend(
+        AccountListType::Blocks
+            .list(&config.server, &config.auth.token)
+            .context("getting blocks for account")?,
+    );
+    wait_until_key(&lim_queries, &config.server);
     loop {
         for (i, hashtag) in config.hashtag.iter().enumerate() {
             if let Err(e) = import_hashtag(
@@ -105,6 +115,7 @@ pub(crate) fn run() -> Result<()> {
                 &lim_queries,
                 &lim_upstreams,
                 &lim_import,
+                &ignore_accounts,
             ) {
                 println!("\nHashtag {}: {e:#}", hashtag.name);
                 continue;
@@ -126,6 +137,7 @@ fn import_hashtag(
     lim_queries: &governor::DefaultKeyedRateLimiter<String>,
     lim_upstreams: &governor::DefaultKeyedRateLimiter<String>,
     lim_import: &governor::DefaultDirectRateLimiter,
+    ignore_accounts: &[String],
 ) -> Result<()> {
     let mut remote_statuses: HashSet<String> = HashSet::new();
     let now = iso8601_timestamp::Timestamp::now_utc();
@@ -144,6 +156,7 @@ fn import_hashtag(
                         true
                     }
             })
+            .filter(|s| !ignore_accounts.contains(&s.account.url))
             .collect();
         remote_statuses.extend(list.into_iter().map(|s| s.url));
     }
@@ -304,5 +317,34 @@ impl WithErrorText for reqwest::blocking::Response {
             );
         }
         Ok(self)
+    }
+}
+#[derive(Clone, Copy)]
+enum AccountListType {
+    Mutes,
+    Blocks,
+    // Could be follows, follow_request, follworers, endorsements...
+}
+impl AccountListType {
+    fn list(self, server: &str, token: &str) -> Result<Vec<String>> {
+        let typ = match self {
+            AccountListType::Mutes => "mutes",
+            AccountListType::Blocks => "blocks",
+        };
+        // TODO: pagination! this requires parsing link tags
+        // https://docs.joinmastodon.org/api/guidelines/#pagination
+        client()?
+            .get(
+                reqwest::Url::parse(&format!("https://{server}/api/v1/{typ}"))
+                    .with_context(|| format!("url for {server} {typ}"))?
+                    .as_str(),
+            )
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .context("account list get failed")?
+            .with_error_text()?
+            .json::<Vec<Account>>() // a bit wasteful to allocate a vec but…
+            .context("account list body not valid json")
+            .map(|list| list.into_iter().map(|acct| acct.url).collect())
     }
 }
