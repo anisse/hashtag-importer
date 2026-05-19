@@ -144,20 +144,29 @@ fn import_hashtag(
     let max_since = iso8601_timestamp::Duration::DAY * 31;
     for server in hashtag.sources.iter() {
         wait_until_key(lim_queries, server);
-        let list: Vec<Status> = hashtags(server, "", &hashtag.name, &hashtag.any, 25)
-            .with_context(|| format!("fetch remote {server} error"))?
-            .into_iter()
-            .filter(|s| {
-                //println!("{now} url: {} created at: {}, edited at: {:?}", s.url, s.created_at, s.edited_at);
-                now.duration_since(s.created_at) < max_since
-                    && if let Some(edited_at) = s.edited_at {
-                        now.duration_since(edited_at) < max_since
-                    } else {
-                        true
-                    }
-            })
-            .filter(|s| !ignore_accounts.contains(&s.account.url))
-            .collect();
+        let elist: Result<Vec<Status>> = hashtags(server, "", &hashtag.name, &hashtag.any, 25)
+            .with_context(|| format!("fetch remote {server} error"))
+            .map(|v| {
+                v.into_iter()
+                    .filter(|s| {
+                        //println!("{now} url: {} created at: {}, edited at: {:?}", s.url, s.created_at, s.edited_at);
+                        now.duration_since(s.created_at) < max_since
+                            && if let Some(edited_at) = s.edited_at {
+                                now.duration_since(edited_at) < max_since
+                            } else {
+                                true
+                            }
+                    })
+                    .filter(|s| !ignore_accounts.contains(&s.account.url))
+                    .collect()
+            });
+        let list = match elist {
+            Ok(l) => l,
+            Err(e) => {
+                println!("Hashtag {}: {e:#}", hashtag.name);
+                continue;
+            }
+        };
         remote_statuses.extend(list.into_iter().map(|s| s.url));
     }
     /* Because of the way Mastodon IDs work, we cannot kindly ask the server to give us posts
